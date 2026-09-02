@@ -8,12 +8,8 @@ struct musicMenuBarApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(audioManager.currentTrack?.title ?? "No track loaded")
-                    .font(.headline)
-            }
-            .padding()
-            .frame(width: 240)
+            PlayerView()
+                .environment(audioManager)
         } label: {
             Image(systemName: audioManager.isPlaying ? "waveform" : "music.note")
         }
