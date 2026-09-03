@@ -2,12 +2,6 @@ import Foundation
 import AVFoundation
 import Observation
 
-struct Track: Identifiable, Equatable {
-    let id = UUID()
-    let title: String
-    let url: URL
-}
-
 @Observable
 final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
 
