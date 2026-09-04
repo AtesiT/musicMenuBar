@@ -12,6 +12,7 @@ struct musicMenuBarApp: App {
                 .environment(audioManager)
         } label: {
             Image(systemName: audioManager.isPlaying ? "waveform" : "music.note")
+                .symbolEffect(.variableColor.iterative, isActive: audioManager.isPlaying)
         }
         .menuBarExtraStyle(.window)
     }

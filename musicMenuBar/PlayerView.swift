@@ -14,11 +14,24 @@ struct PlayerView: View {
             trackTitle
             progressSection
             controls
+            Divider()
+            playlistSection
         }
         .padding()
-        .frame(width: 280)
+        .frame(width: 300)
         .background(isDropTargeted ? Color.accentColor.opacity(0.1) : .clear)
         .onDrop(of: [.fileURL], isTargeted: $isDropTargeted, perform: handleDrop)
+        .alert(
+            "Error",
+            isPresented: Binding(
+                get: { audioManager.errorMessage != nil },
+                set: { if !$0 { audioManager.errorMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(audioManager.errorMessage ?? "")
+        }
     }
 
     private var trackTitle: some View {
@@ -86,6 +99,44 @@ struct PlayerView: View {
         }
     }
 
+    @ViewBuilder
+    private var playlistSection: some View {
+        if audioManager.playlist.tracks.isEmpty {
+            Text("Drop MP3 files here")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    ForEach(audioManager.playlist.tracks) { track in
+                        trackRow(track)
+                    }
+                }
+            }
+            .frame(maxHeight: 140)
+        }
+    }
+
+    private func trackRow(_ track: Track) -> some View {
+        let isCurrent = track.id == audioManager.currentTrack?.id
+
+        return Text(track.title)
+            .font(.subheadline)
+            .lineLimit(1)
+            .foregroundStyle(isCurrent ? Color.accentColor : .primary)
+            .padding(.vertical, 4)
+            .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(isCurrent ? Color.accentColor.opacity(0.1) : .clear)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .contentShape(Rectangle())
+            .onTapGesture {
+                audioManager.play(trackWithId: track.id)
+            }
+    }
+
     private func formatted(_ time: TimeInterval) -> String {
         let minutes = Int(time) / 60
         let seconds = Int(time) % 60
@@ -93,11 +144,17 @@ struct PlayerView: View {
     }
 
     private func openFilePicker() {
+        NSApp.activate(ignoringOtherApps: true)
+
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.mp3]
         panel.allowsMultipleSelection = true
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.level = .modalPanel
 
-        if panel.runModal() == .OK {
+        panel.begin { response in
+            guard response == .OK else { return }
             audioManager.loadFiles(from: panel.urls)
         }
     }
@@ -111,8 +168,7 @@ struct PlayerView: View {
             provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
                 defer { group.leave() }
                 guard let data = item as? Data,
-                      let url = URL(dataRepresentation: data, relativeTo: nil),
-                      url.pathExtension.lowercased() == "mp3" else { return }
+                      let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
                 urls.append(url)
             }
         }

@@ -9,6 +9,7 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     private(set) var currentTime: TimeInterval = 0
     private(set) var duration: TimeInterval = 0
     private(set) var playlist = Playlist()
+    var errorMessage: String?
 
     var currentTrack: Track? { playlist.currentTrack }
 
@@ -23,7 +24,14 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     }
 
     func loadFiles(from urls: [URL]) {
-        let newTracks = urls.map { Track(title: $0.deletingPathExtension().lastPathComponent, url: $0) }
+        let validURLs = urls.filter { $0.pathExtension.lowercased() == "mp3" }
+
+        guard !validURLs.isEmpty else {
+            errorMessage = "Only MP3 files are supported"
+            return
+        }
+
+        let newTracks = validURLs.map { Track(title: $0.deletingPathExtension().lastPathComponent, url: $0) }
         let shouldAutoload = playlist.currentTrack == nil
 
         playlist.append(newTracks)
@@ -77,7 +85,11 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     private func load(track: Track) {
         stopPlayback()
 
-        guard let player = try? AVAudioPlayer(contentsOf: track.url) else { return }
+        guard let player = try? AVAudioPlayer(contentsOf: track.url) else {
+            errorMessage = "Failed to load \"\(track.title)\""
+            return
+        }
+
         player.delegate = self
         player.prepareToPlay()
 
@@ -134,3 +146,4 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         loadFiles(from: [url])
     }
 }
+
