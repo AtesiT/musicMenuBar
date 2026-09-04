@@ -1,12 +1,13 @@
 import SwiftUI
 import AppKit
-internal import UniformTypeIdentifiers
+import UniformTypeIdentifiers
 
 struct PlayerView: View {
 
     @Environment(AudioPlayerManager.self) private var audioManager
     @State private var isSeeking = false
     @State private var seekValue: TimeInterval = 0
+    @State private var isDropTargeted = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -15,7 +16,9 @@ struct PlayerView: View {
             controls
         }
         .padding()
-        .frame(width: 260)
+        .frame(width: 280)
+        .background(isDropTargeted ? Color.accentColor.opacity(0.1) : .clear)
+        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted, perform: handleDrop)
     }
 
     private var trackTitle: some View {
@@ -52,7 +55,7 @@ struct PlayerView: View {
     }
 
     private var controls: some View {
-        HStack {
+        HStack(spacing: 20) {
             Button(action: openFilePicker) {
                 Image(systemName: "folder")
             }
@@ -60,12 +63,24 @@ struct PlayerView: View {
 
             Spacer()
 
+            Button(action: audioManager.previous) {
+                Image(systemName: "backward.fill")
+            }
+            .buttonStyle(.borderless)
+            .disabled(audioManager.playlist.tracks.count < 2)
+
             Button(action: audioManager.togglePlayback) {
                 Image(systemName: audioManager.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                     .font(.system(size: 28))
             }
             .buttonStyle(.borderless)
             .disabled(audioManager.currentTrack == nil)
+
+            Button(action: audioManager.next) {
+                Image(systemName: "forward.fill")
+            }
+            .buttonStyle(.borderless)
+            .disabled(audioManager.playlist.tracks.count < 2)
 
             Spacer()
         }
@@ -80,10 +95,33 @@ struct PlayerView: View {
     private func openFilePicker() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.mp3]
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = true
 
-        if panel.runModal() == .OK, let url = panel.url {
-            audioManager.loadTrack(from: url)
+        if panel.runModal() == .OK {
+            audioManager.loadFiles(from: panel.urls)
         }
+    }
+
+    private func handleDrop(providers: [NSItemProvider]) -> Bool {
+        let group = DispatchGroup()
+        var urls: [URL] = []
+
+        for provider in providers {
+            group.enter()
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
+                defer { group.leave() }
+                guard let data = item as? Data,
+                      let url = URL(dataRepresentation: data, relativeTo: nil),
+                      url.pathExtension.lowercased() == "mp3" else { return }
+                urls.append(url)
+            }
+        }
+
+        group.notify(queue: .main) {
+            guard !urls.isEmpty else { return }
+            audioManager.loadFiles(from: urls)
+        }
+
+        return true
     }
 }
