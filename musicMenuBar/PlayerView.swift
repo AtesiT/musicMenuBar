@@ -70,6 +70,12 @@ struct PlayerView: View {
 
     private var controls: some View {
         HStack(spacing: 20) {
+            Button(action: audioManager.toggleShuffle) {
+                Image(systemName: "shuffle")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(audioManager.isShuffleEnabled ? Color.accentColor : .secondary)
+
             Button(action: audioManager.previous) {
                 Image(systemName: "backward.fill")
             }
@@ -97,7 +103,7 @@ struct PlayerView: View {
         }
         .frame(maxWidth: .infinity)
     }
-
+    
     @ViewBuilder
     private var playlistSection: some View {
         if audioManager.playlist.tracks.isEmpty {

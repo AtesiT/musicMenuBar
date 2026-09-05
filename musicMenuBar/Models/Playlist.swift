@@ -34,4 +34,17 @@ struct Playlist {
         self.currentIndex = previousIndex
         return tracks[previousIndex]
     }
+
+    mutating func randomTrack() -> Track? {
+        guard tracks.count > 1 else { return currentTrack }
+
+        var candidates = Array(tracks.indices)
+        if let currentIndex {
+            candidates.removeAll { $0 == currentIndex }
+        }
+
+        guard let newIndex = candidates.randomElement() else { return currentTrack }
+        currentIndex = newIndex
+        return tracks[newIndex]
+    }
 }

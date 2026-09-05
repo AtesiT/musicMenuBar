@@ -10,6 +10,7 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     private(set) var duration: TimeInterval = 0
     private(set) var isRepeatEnabled: Bool = false
     private(set) var playlist = Playlist()
+    private(set) var isShuffleEnabled: Bool = false
     var errorMessage: String?
 
     var currentTrack: Track? { playlist.currentTrack }
@@ -25,7 +26,11 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     }
 
     private static let supportedExtensions: Set<String> = ["mp3", "m4a", "wav"]
-
+    
+    func toggleShuffle() {
+        isShuffleEnabled.toggle()
+    }
+    
     func toggleRepeat() {
         isRepeatEnabled.toggle()
     }
@@ -84,11 +89,12 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     }
 
     func next() {
-        guard let track = playlist.next() else { return }
+        let track = isShuffleEnabled ? playlist.randomTrack() : playlist.next()
+        guard let track else { return }
         load(track: track)
         play()
     }
-
+    
     func previous() {
         guard let track = playlist.previous() else { return }
         load(track: track)
