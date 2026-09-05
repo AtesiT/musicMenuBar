@@ -144,18 +144,8 @@ struct PlayerView: View {
     }
 
     private func openFilePicker() {
-        NSApp.activate(ignoringOtherApps: true)
-
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.mp3, .mpeg4Audio, .wav]
-        panel.allowsMultipleSelection = true
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.level = .modalPanel
-
-        panel.begin { response in
-            guard response == .OK else { return }
-            audioManager.loadFiles(from: panel.urls)
+        FilePicker.presentForAudio { urls in
+            audioManager.loadFiles(from: urls)
         }
     }
     

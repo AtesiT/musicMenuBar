@@ -30,11 +30,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             accessibilityDescription: nil
         )
         item.button?.target = self
-        item.button?.action = #selector(togglePanel)
+        item.button?.action = #selector(handleStatusItemClick)
+        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         statusItem = item
     }
 
-    @objc private func togglePanel() {
+    @objc private func handleStatusItemClick() {
+        guard let event = NSApp.currentEvent, event.type == .rightMouseUp else {
+            togglePanel()
+            return
+        }
+        showContextMenu()
+    }
+
+    private func showContextMenu() {
+        let menu = NSMenu()
+        //menu.appearance = NSAppearance(named: .aqua)
+
+        let addItem = NSMenuItem(title: "Add Music…", action: #selector(addMusic), keyEquivalent: "")
+        addItem.target = self
+        menu.addItem(addItem)
+
+        menu.addItem(.separator())
+
+        let quitItem = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q")
+        quitItem.target = self
+        menu.addItem(quitItem)
+
+        guard let button = statusItem?.button else { return }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 4), in: button)
+    }
+
+    @objc private func addMusic() {
+        FilePicker.presentForAudio { [weak self] urls in
+            self?.audioManager.loadFiles(from: urls)
+        }
+    }
+
+    @objc private func quit() {
+        NSApp.terminate(nil)
+    }
+
+    private func togglePanel() {
         guard let panel, panel.isVisible else {
             showPanel()
             return
