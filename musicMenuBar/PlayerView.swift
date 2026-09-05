@@ -102,7 +102,7 @@ struct PlayerView: View {
     @ViewBuilder
     private var playlistSection: some View {
         if audioManager.playlist.tracks.isEmpty {
-            Text("Drop MP3 files here")
+            Text("Drop MP3, M4A or WAV files here")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity)
@@ -147,7 +147,7 @@ struct PlayerView: View {
         NSApp.activate(ignoringOtherApps: true)
 
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.mp3]
+        panel.allowedContentTypes = [.mp3, .mpeg4Audio, .wav]
         panel.allowsMultipleSelection = true
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
@@ -158,7 +158,7 @@ struct PlayerView: View {
             audioManager.loadFiles(from: panel.urls)
         }
     }
-
+    
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
         let group = DispatchGroup()
         var urls: [URL] = []

@@ -23,11 +23,15 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         restoreLastTrack()
     }
 
+    private static let supportedExtensions: Set<String> = ["mp3", "m4a", "wav"]
+
     func loadFiles(from urls: [URL]) {
-        let validURLs = urls.filter { $0.pathExtension.lowercased() == "mp3" }
+        let validURLs = urls.filter {
+            Self.supportedExtensions.contains($0.pathExtension.lowercased())
+        }
 
         guard !validURLs.isEmpty else {
-            errorMessage = "Only MP3 files are supported"
+            errorMessage = "Supported formats: MP3, M4A, WAV"
             return
         }
 
@@ -40,7 +44,7 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
             load(track: first)
         }
     }
-
+    
     func play(trackWithId id: Track.ID) {
         playlist.selectTrack(with: id)
         guard let track = playlist.currentTrack else { return }
@@ -146,4 +150,3 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         loadFiles(from: [url])
     }
 }
-
