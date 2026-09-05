@@ -8,6 +8,7 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     private(set) var isPlaying: Bool = false
     private(set) var currentTime: TimeInterval = 0
     private(set) var duration: TimeInterval = 0
+    private(set) var isRepeatEnabled: Bool = false
     private(set) var playlist = Playlist()
     var errorMessage: String?
 
@@ -25,6 +26,19 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
 
     private static let supportedExtensions: Set<String> = ["mp3", "m4a", "wav"]
 
+    func toggleRepeat() {
+        isRepeatEnabled.toggle()
+    }
+    
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        if isRepeatEnabled {
+            seek(to: 0)
+            play()
+        } else {
+            next()
+        }
+    }
+    
     func loadFiles(from urls: [URL]) {
         let validURLs = urls.filter {
             Self.supportedExtensions.contains($0.pathExtension.lowercased())
@@ -124,10 +138,6 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     private func stopProgressTimer() {
         progressTimer?.invalidate()
         progressTimer = nil
-    }
-
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        next()
     }
 
     private func saveLastTrackBookmark(for url: URL) {

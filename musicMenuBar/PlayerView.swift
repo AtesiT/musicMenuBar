@@ -19,6 +19,7 @@ struct PlayerView: View {
         }
         .padding()
         .frame(width: 300)
+        .frame(minHeight: 280, maxHeight: .infinity)
         .background(isDropTargeted ? Color.accentColor.opacity(0.1) : .clear)
         .onDrop(of: [.fileURL], isTargeted: $isDropTargeted, perform: handleDrop)
         .alert(
@@ -69,13 +70,6 @@ struct PlayerView: View {
 
     private var controls: some View {
         HStack(spacing: 20) {
-            Button(action: openFilePicker) {
-                Image(systemName: "folder")
-            }
-            .buttonStyle(.borderless)
-
-            Spacer()
-
             Button(action: audioManager.previous) {
                 Image(systemName: "backward.fill")
             }
@@ -95,8 +89,13 @@ struct PlayerView: View {
             .buttonStyle(.borderless)
             .disabled(audioManager.playlist.tracks.count < 2)
 
-            Spacer()
+            Button(action: audioManager.toggleRepeat) {
+                Image(systemName: "repeat")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(audioManager.isRepeatEnabled ? Color.accentColor : .secondary)
         }
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
@@ -115,7 +114,7 @@ struct PlayerView: View {
                     }
                 }
             }
-            .frame(maxHeight: 140)
+            .frame(maxHeight: .infinity)
         }
     }
 
@@ -143,12 +142,6 @@ struct PlayerView: View {
         return String(format: "%d:%02d", minutes, seconds)
     }
 
-    private func openFilePicker() {
-        FilePicker.presentForAudio { urls in
-            audioManager.loadFiles(from: urls)
-        }
-    }
-    
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
         let group = DispatchGroup()
         var urls: [URL] = []
