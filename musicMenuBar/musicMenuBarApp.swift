@@ -12,7 +12,7 @@ struct musicMenuBarApp: App {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     
     private var statusItem: NSStatusItem?
     private var panel: NSPanel?
@@ -103,7 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         
         let panel = NSPanel(contentViewController: hosting)
-        panel.styleMask = [.nonactivatingPanel, .titled, .fullSizeContentView, .resizable]
+        panel.styleMask = [.nonactivatingPanel, .titled, .fullSizeContentView, .resizable, .closable]
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
         panel.isMovableByWindowBackground = true
@@ -111,6 +111,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.becomesKeyOnlyIfNeeded = true
+        panel.isReleasedWhenClosed = false
+        panel.delegate = self
+        
+        panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
         
         let fixedWidth: CGFloat = 300
         panel.minSize = NSSize(width: fixedWidth, height: 280)
@@ -118,5 +122,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.setContentSize(NSSize(width: fixedWidth, height: 320))
         
         return panel
+    }
+    
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        sender.orderOut(nil)
+        return false
     }
 }
