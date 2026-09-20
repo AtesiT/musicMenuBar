@@ -1,4 +1,6 @@
 import Foundation
+import AppKit
+import UniformTypeIdentifiers
 
 struct Playlist {
 
@@ -46,5 +48,29 @@ struct Playlist {
         guard let newIndex = candidates.randomElement() else { return currentTrack }
         currentIndex = newIndex
         return tracks[newIndex]
+    }
+}
+
+struct Track: Identifiable, Equatable {
+    let id = UUID()
+    let title: String
+    let url: URL
+}
+
+enum FilePicker {
+    static func presentForAudio(completion: @escaping ([URL]) -> Void) {
+        NSApp.activate(ignoringOtherApps: true)
+
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.mp3, .mpeg4Audio, .wav]
+        panel.allowsMultipleSelection = true
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.level = .modalPanel
+
+        panel.begin { response in
+            guard response == .OK else { return }
+            completion(panel.urls)
+        }
     }
 }
