@@ -14,6 +14,11 @@ struct Playlist {
         return tracks[currentIndex]
     }
 
+    var isLastTrack: Bool {
+        guard let currentIndex else { return true }
+        return currentIndex >= tracks.count - 1
+    }
+
     mutating func append(_ newTracks: [Track]) {
         tracks.append(contentsOf: newTracks)
         if currentIndex == nil, !tracks.isEmpty {
@@ -116,8 +121,15 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         if isRepeatEnabled {
             seek(to: 0)
             play()
-        } else {
+            return
+        }
+        let canAdvance = playlist.tracks.count > 1
+            && (isShuffleEnabled || !playlist.isLastTrack)
+
+        if canAdvance {
             next()
+        } else {
+            finishPlayback()
         }
     }
     
@@ -183,6 +195,14 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         let clamped = min(max(time, 0), player.duration)
         player.currentTime = clamped
         currentTime = clamped
+    }
+
+    private func finishPlayback() {
+        stopProgressTimer()
+        isPlaying = false
+        player?.currentTime = 0
+        player?.prepareToPlay()
+        currentTime = 0
     }
 
     private func load(track: Track) {
