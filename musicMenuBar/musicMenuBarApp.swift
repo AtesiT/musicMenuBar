@@ -46,7 +46,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     
     private func showContextMenu() {
         let menu = NSMenu()
-        //menu.appearance = NSAppearance(named: .aqua)
         
         let addItem = NSMenuItem(title: "Add Music…", action: #selector(addMusic), keyEquivalent: "")
         addItem.target = self
@@ -179,9 +178,12 @@ struct PlayerView: View {
                 ),
                 in: 0...max(audioManager.duration, 1),
                 onEditingChanged: { editing in
-                    isSeeking = editing
-                    if !editing {
+                    if editing {
+                        seekValue = audioManager.currentTime
+                        isSeeking = true
+                    } else {
                         audioManager.seek(to: seekValue)
+                        isSeeking = false
                     }
                 }
             )
@@ -278,25 +280,33 @@ struct PlayerView: View {
     }
 
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
-        let group = DispatchGroup()
-        var urls: [URL] = []
-
-        for provider in providers {
-            group.enter()
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
-                defer { group.leave() }
-                guard let data = item as? Data,
-                      let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
-                urls.append(url)
+        Task { @MainActor in
+            var urls: [URL] = []
+            for provider in providers {
+                if let url = await provider.loadFileURL() {
+                    urls.append(url)
+                }
             }
-        }
-
-        group.notify(queue: .main) {
             guard !urls.isEmpty else { return }
             audioManager.loadFiles(from: urls)
         }
-
         return true
     }
 }
 
+extension NSItemProvider {
+    func loadFileURL() async -> URL? {
+        await withCheckedContinuation { continuation in
+            loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                if let data = item as? Data,
+                   let url = URL(dataRepresentation: data, relativeTo: nil) {
+                    continuation.resume(returning: url)
+                } else if let url = item as? URL {
+                    continuation.resume(returning: url)
+                } else {
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
+    }
+}

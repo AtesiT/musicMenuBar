@@ -111,6 +111,8 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     }
     
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        guard player === self.player else { return }
+
         if isRepeatEnabled {
             seek(to: 0)
             play()
@@ -177,8 +179,10 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     }
 
     func seek(to time: TimeInterval) {
-        player?.currentTime = time
-        currentTime = time
+        guard let player else { return }
+        let clamped = min(max(time, 0), player.duration)
+        player.currentTime = clamped
+        currentTime = clamped
     }
 
     private func load(track: Track) {
@@ -210,10 +214,12 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
 
     private func startProgressTimer() {
         stopProgressTimer()
-        progressTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
             guard let self, let player = self.player else { return }
             self.currentTime = player.currentTime
         }
+        RunLoop.main.add(timer, forMode: .common)
+        progressTimer = timer
     }
 
     private func stopProgressTimer() {
@@ -241,4 +247,3 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         loadFiles(from: [url])
     }
 }
-
