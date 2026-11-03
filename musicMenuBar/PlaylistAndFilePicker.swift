@@ -156,8 +156,9 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     func play(trackWithId id: Track.ID) {
         playlist.selectTrack(with: id)
         guard let track = playlist.currentTrack else { return }
-        load(track: track)
-        play()
+        if load(track: track) {
+            play()
+        }
     }
 
     func togglePlayback() {
@@ -178,16 +179,11 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     }
 
     func next() {
-        let track = isShuffleEnabled ? playlist.randomTrack() : playlist.next()
-        guard let track else { return }
-        load(track: track)
-        play()
+        advance { isShuffleEnabled ? playlist.randomTrack() : playlist.next() }
     }
     
     func previous() {
-        guard let track = playlist.previous() else { return }
-        load(track: track)
-        play()
+        advance { playlist.previous() }
     }
 
     func seek(to time: TimeInterval) {
@@ -195,6 +191,25 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         let clamped = min(max(time, 0), player.duration)
         player.currentTime = clamped
         currentTime = clamped
+    }
+    private func advance(using nextTrack: () -> Track?) {
+        var failedTitles: [String] = []
+
+        for _ in 0..<max(playlist.tracks.count, 1) {
+            guard let track = nextTrack() else { break }
+
+            if load(track: track, reportError: false) {
+                play()
+                break
+            }
+            failedTitles.append(track.title)
+        }
+
+        guard !failedTitles.isEmpty else { return }
+
+        errorMessage = failedTitles.count == 1
+            ? "Failed to load \"\(failedTitles[0])\""
+            : "Failed to load \(failedTitles.count) tracks"
     }
 
     private func finishPlayback() {
@@ -205,12 +220,15 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         currentTime = 0
     }
 
-    private func load(track: Track) {
+    @discardableResult
+    private func load(track: Track, reportError: Bool = true) -> Bool {
         stopPlayback()
 
         guard let player = try? AVAudioPlayer(contentsOf: track.url) else {
-            errorMessage = "Failed to load \"\(track.title)\""
-            return
+            if reportError {
+                errorMessage = "Failed to load \"\(track.title)\""
+            }
+            return false
         }
 
         player.delegate = self
@@ -221,6 +239,7 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         currentTime = 0
 
         saveLastTrackBookmark(for: track.url)
+        return true
     }
 
     private func stopPlayback() {
