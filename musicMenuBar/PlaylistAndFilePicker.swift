@@ -170,6 +170,10 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     }
 
     func play() {
+        if player == nil {
+            guard let track = currentTrack, load(track: track) else { return }
+        }
+
         guard let player else { return }
         player.play()
         isPlaying = true
