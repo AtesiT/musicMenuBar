@@ -283,6 +283,11 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         ) else { return }
 
         guard url.startAccessingSecurityScopedResource() else { return }
+
+        if isStale {
+            saveLastTrackBookmark(for: url)
+        }
+
         loadFiles(from: [url])
     }
 }
