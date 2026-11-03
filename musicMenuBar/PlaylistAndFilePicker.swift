@@ -26,6 +26,15 @@ struct Playlist {
         }
     }
 
+    mutating func restore(tracks restoredTracks: [Track], currentIndex restoredIndex: Int?) {
+        tracks = restoredTracks
+        if let restoredIndex, restoredTracks.indices.contains(restoredIndex) {
+            currentIndex = restoredIndex
+        } else {
+            currentIndex = restoredTracks.isEmpty ? nil : 0
+        }
+    }
+
     mutating func selectTrack(with id: Track.ID) {
         currentIndex = tracks.firstIndex { $0.id == id }
     }
@@ -62,6 +71,12 @@ struct Track: Identifiable, Equatable {
     let id = UUID()
     let title: String
     let url: URL
+    let bookmark: Data?
+}
+
+private struct SavedPlaylist: Codable {
+    var bookmarks: [Data]
+    var currentIndex: Int?
 }
 
 enum FilePicker {
@@ -98,11 +113,12 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     private var player: AVAudioPlayer?
     private var progressTimer: Timer?
 
-    private let lastTrackBookmarkKey = "lastTrackBookmark"
+    private let savedPlaylistKey = "savedPlaylist"
+    private let legacyLastTrackBookmarkKey = "lastTrackBookmark"
 
     override init() {
         super.init()
-        restoreLastTrack()
+        restorePlaylist()
     }
 
     private static let supportedExtensions: Set<String> = ["mp3", "m4a", "wav"]
@@ -123,6 +139,7 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
             play()
             return
         }
+
         let canAdvance = playlist.tracks.count > 1
             && (isShuffleEnabled || !playlist.isLastTrack)
 
@@ -142,15 +159,17 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
             errorMessage = "Supported formats: MP3, M4A, WAV"
             return
         }
+
         var seen = Set(playlist.tracks.map { $0.url.standardizedFileURL })
         let uniqueURLs = validURLs.filter { seen.insert($0.standardizedFileURL).inserted }
 
         guard !uniqueURLs.isEmpty else { return }
 
-        let newTracks = uniqueURLs.map { Track(title: $0.deletingPathExtension().lastPathComponent, url: $0) }
+        let newTracks = uniqueURLs.map { makeTrack(url: $0) }
         let shouldAutoload = playlist.currentTrack == nil
 
         playlist.append(newTracks)
+        persistPlaylist()
 
         if shouldAutoload, let first = playlist.currentTrack {
             load(track: first)
@@ -230,6 +249,8 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
 
     @discardableResult
     private func load(track: Track, reportError: Bool = true) -> Bool {
+        defer { persistPlaylist() }
+
         stopPlayback()
 
         guard let player = try? AVAudioPlayer(contentsOf: track.url) else {
@@ -246,7 +267,6 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         duration = player.duration
         currentTime = 0
 
-        saveLastTrackBookmark(for: track.url)
         return true
     }
 
@@ -274,28 +294,81 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         progressTimer = nil
     }
 
-    private func saveLastTrackBookmark(for url: URL) {
-        guard let bookmark = try? url.bookmarkData(options: .withSecurityScope) else { return }
-        UserDefaults.standard.set(bookmark, forKey: lastTrackBookmarkKey)
+    private func makeTrack(url: URL, bookmark: Data? = nil) -> Track {
+        Track(
+            title: url.deletingPathExtension().lastPathComponent,
+            url: url,
+            bookmark: bookmark ?? (try? url.bookmarkData(options: .withSecurityScope))
+        )
     }
 
-    private func restoreLastTrack() {
-        guard let bookmark = UserDefaults.standard.data(forKey: lastTrackBookmarkKey) else { return }
+    private func persistPlaylist() {
+        var bookmarks: [Data] = []
+        var savedIndex: Int?
 
+        for (index, track) in playlist.tracks.enumerated() {
+            guard let bookmark = track.bookmark else { continue }
+            if index == playlist.currentIndex {
+                savedIndex = bookmarks.count
+            }
+            bookmarks.append(bookmark)
+        }
+
+        let saved = SavedPlaylist(bookmarks: bookmarks, currentIndex: savedIndex)
+        guard let data = try? JSONEncoder().encode(saved) else { return }
+        UserDefaults.standard.set(data, forKey: savedPlaylistKey)
+    }
+
+    private func resolveBookmark(_ bookmark: Data) -> (url: URL, bookmark: Data)? {
         var isStale = false
         guard let url = try? URL(
             resolvingBookmarkData: bookmark,
             options: .withSecurityScope,
             relativeTo: nil,
             bookmarkDataIsStale: &isStale
-        ) else { return }
+        ) else { return nil }
 
-        guard url.startAccessingSecurityScopedResource() else { return }
+        guard url.startAccessingSecurityScopedResource() else { return nil }
 
-        if isStale {
-            saveLastTrackBookmark(for: url)
+        var actualBookmark = bookmark
+        if isStale, let refreshed = try? url.bookmarkData(options: .withSecurityScope) {
+            actualBookmark = refreshed
+        }
+        return (url, actualBookmark)
+    }
+
+    private func restorePlaylist() {
+        let defaults = UserDefaults.standard
+        var tracks: [Track] = []
+        var restoredIndex: Int?
+
+        if let data = defaults.data(forKey: savedPlaylistKey),
+           let saved = try? JSONDecoder().decode(SavedPlaylist.self, from: data) {
+
+            var seen = Set<URL>()
+
+            for (index, bookmark) in saved.bookmarks.enumerated() {
+                guard let resolved = resolveBookmark(bookmark),
+                      seen.insert(resolved.url.standardizedFileURL).inserted else { continue }
+
+                if index == saved.currentIndex {
+                    restoredIndex = tracks.count
+                }
+                tracks.append(makeTrack(url: resolved.url, bookmark: resolved.bookmark))
+            }
+        } else if let legacy = defaults.data(forKey: legacyLastTrackBookmarkKey) {
+            if let resolved = resolveBookmark(legacy) {
+                tracks.append(makeTrack(url: resolved.url, bookmark: resolved.bookmark))
+            }
+            defaults.removeObject(forKey: legacyLastTrackBookmarkKey)
         }
 
-        loadFiles(from: [url])
+        guard !tracks.isEmpty else { return }
+
+        playlist.restore(tracks: tracks, currentIndex: restoredIndex)
+
+        if let current = playlist.currentTrack {
+            load(track: current, reportError: false)
+        }
     }
 }
