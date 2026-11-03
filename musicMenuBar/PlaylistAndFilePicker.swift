@@ -142,8 +142,12 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
             errorMessage = "Supported formats: MP3, M4A, WAV"
             return
         }
+        var seen = Set(playlist.tracks.map { $0.url.standardizedFileURL })
+        let uniqueURLs = validURLs.filter { seen.insert($0.standardizedFileURL).inserted }
 
-        let newTracks = validURLs.map { Track(title: $0.deletingPathExtension().lastPathComponent, url: $0) }
+        guard !uniqueURLs.isEmpty else { return }
+
+        let newTracks = uniqueURLs.map { Track(title: $0.deletingPathExtension().lastPathComponent, url: $0) }
         let shouldAutoload = playlist.currentTrack == nil
 
         playlist.append(newTracks)
