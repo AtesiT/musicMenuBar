@@ -219,6 +219,7 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         player.currentTime = clamped
         currentTime = clamped
     }
+
     private func advance(using nextTrack: () -> Track?) {
         var failedTitles: [String] = []
 

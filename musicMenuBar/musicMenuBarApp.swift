@@ -135,7 +135,16 @@ struct PlayerView: View {
     @Environment(AudioPlayerManager.self) private var audioManager
     @State private var isSeeking = false
     @State private var seekValue: TimeInterval = 0
+    @State private var seekTrackID: Track.ID?
     @State private var isDropTargeted = false
+
+    private var isSeekingCurrentTrack: Bool {
+        isSeeking && seekTrackID == audioManager.currentTrack?.id
+    }
+
+    private var displayedTime: TimeInterval {
+        isSeekingCurrentTrack ? seekValue : audioManager.currentTime
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -173,24 +182,28 @@ struct PlayerView: View {
         VStack(spacing: 4) {
             Slider(
                 value: Binding(
-                    get: { isSeeking ? seekValue : audioManager.currentTime },
+                    get: { displayedTime },
                     set: { seekValue = $0 }
                 ),
                 in: 0...max(audioManager.duration, 1),
                 onEditingChanged: { editing in
                     if editing {
                         seekValue = audioManager.currentTime
+                        seekTrackID = audioManager.currentTrack?.id
                         isSeeking = true
                     } else {
-                        audioManager.seek(to: seekValue)
+                        if isSeekingCurrentTrack {
+                            audioManager.seek(to: seekValue)
+                        }
                         isSeeking = false
+                        seekTrackID = nil
                     }
                 }
             )
             .disabled(audioManager.currentTrack == nil)
 
             HStack {
-                Text(formatted(isSeeking ? seekValue : audioManager.currentTime))
+                Text(formatted(displayedTime))
                 Spacer()
                 Text(formatted(audioManager.duration))
             }
