@@ -134,6 +134,11 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         guard player === self.player else { return }
 
+        guard flag else {
+            handlePlaybackFailure()
+            return
+        }
+
         if isRepeatEnabled {
             seek(to: 0)
             play()
@@ -148,6 +153,11 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         } else {
             finishPlayback()
         }
+    }
+
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        guard player === self.player else { return }
+        handlePlaybackFailure()
     }
     
     func loadFiles(from urls: [URL]) {
@@ -246,6 +256,17 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         player?.currentTime = 0
         player?.prepareToPlay()
         currentTime = 0
+    }
+
+    private func handlePlaybackFailure() {
+        let title = currentTrack?.title
+        finishPlayback()
+
+        if let title {
+            errorMessage = "Playback failed for \"\(title)\""
+        } else {
+            errorMessage = "Playback failed"
+        }
     }
 
     @discardableResult
