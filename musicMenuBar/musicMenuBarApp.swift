@@ -87,10 +87,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         
         let buttonFrame = buttonWindow.convertToScreen(button.frame)
         let panelSize = panel.frame.size
-        let origin = NSPoint(
+        var origin = NSPoint(
             x: buttonFrame.midX - panelSize.width / 2,
             y: buttonFrame.minY - panelSize.height - 4
         )
+        
+        if let visibleFrame = buttonWindow.screen?.visibleFrame ?? NSScreen.main?.visibleFrame {
+            let margin: CGFloat = 4
+            let maxX = visibleFrame.maxX - panelSize.width - margin
+            let minX = visibleFrame.minX + margin
+            origin.x = max(minX, min(origin.x, maxX))
+            origin.y = max(origin.y, visibleFrame.minY + margin)
+        }
         
         panel.setFrameOrigin(origin)
         panel.makeKeyAndOrderFront(nil)
