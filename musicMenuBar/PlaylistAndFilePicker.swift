@@ -35,6 +35,11 @@ struct Playlist {
         }
     }
 
+    mutating func replaceTrack(_ track: Track) {
+        guard let index = tracks.firstIndex(where: { $0.id == track.id }) else { return }
+        tracks[index] = track
+    }
+
     mutating func selectTrack(with id: Track.ID) {
         currentIndex = tracks.firstIndex { $0.id == id }
     }
@@ -68,14 +73,15 @@ struct Playlist {
 }
 
 struct Track: Identifiable, Equatable {
-    let id = UUID()
+    var id = UUID()
     let title: String
-    let url: URL
+    let url: URL?
     let bookmark: Data?
 }
 
 private struct SavedPlaylist: Codable {
     var bookmarks: [Data]
+    var titles: [String]?
     var currentIndex: Int?
 }
 
@@ -115,6 +121,7 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
 
     private let savedPlaylistKey = "savedPlaylist"
     private let legacyLastTrackBookmarkKey = "lastTrackBookmark"
+    private let unavailableTrackTitle = "Unavailable track"
 
     override init() {
         super.init()
@@ -170,7 +177,7 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
             return
         }
 
-        var seen = Set(playlist.tracks.map { $0.url.standardizedFileURL })
+        var seen = Set(playlist.tracks.compactMap { $0.url?.standardizedFileURL })
         let uniqueURLs = validURLs.filter { seen.insert($0.standardizedFileURL).inserted }
 
         guard !uniqueURLs.isEmpty else { return }
@@ -269,13 +276,28 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         }
     }
 
+    private func resolvedURL(for track: Track) -> URL? {
+        if let url = track.url {
+            return url
+        }
+
+        guard let bookmark = track.bookmark,
+              let resolved = resolveBookmark(bookmark) else { return nil }
+
+        playlist.replaceTrack(
+            Track(id: track.id, title: track.title, url: resolved.url, bookmark: resolved.bookmark)
+        )
+        return resolved.url
+    }
+
     @discardableResult
     private func load(track: Track, reportError: Bool = true) -> Bool {
         defer { persistPlaylist() }
 
         stopPlayback()
 
-        guard let player = try? AVAudioPlayer(contentsOf: track.url) else {
+        guard let url = resolvedURL(for: track),
+              let player = try? AVAudioPlayer(contentsOf: url) else {
             if reportError {
                 errorMessage = "Failed to load \"\(track.title)\""
             }
@@ -326,6 +348,7 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
 
     private func persistPlaylist() {
         var bookmarks: [Data] = []
+        var titles: [String] = []
         var savedIndex: Int?
 
         for (index, track) in playlist.tracks.enumerated() {
@@ -334,9 +357,10 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
                 savedIndex = bookmarks.count
             }
             bookmarks.append(bookmark)
+            titles.append(track.title)
         }
 
-        let saved = SavedPlaylist(bookmarks: bookmarks, currentIndex: savedIndex)
+        let saved = SavedPlaylist(bookmarks: bookmarks, titles: titles, currentIndex: savedIndex)
         guard let data = try? JSONEncoder().encode(saved) else { return }
         UserDefaults.standard.set(data, forKey: savedPlaylistKey)
     }
@@ -359,6 +383,13 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         return (url, actualBookmark)
     }
 
+    private func restoreTrack(bookmark: Data, title: String?) -> Track {
+        if let resolved = resolveBookmark(bookmark) {
+            return makeTrack(url: resolved.url, bookmark: resolved.bookmark)
+        }
+        return Track(title: title ?? unavailableTrackTitle, url: nil, bookmark: bookmark)
+    }
+
     private func restorePlaylist() {
         let defaults = UserDefaults.standard
         var tracks: [Track] = []
@@ -370,18 +401,20 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
             var seen = Set<URL>()
 
             for (index, bookmark) in saved.bookmarks.enumerated() {
-                guard let resolved = resolveBookmark(bookmark),
-                      seen.insert(resolved.url.standardizedFileURL).inserted else { continue }
+                let savedTitle = saved.titles.flatMap { $0.indices.contains(index) ? $0[index] : nil }
+                let track = restoreTrack(bookmark: bookmark, title: savedTitle)
+
+                if let url = track.url, !seen.insert(url.standardizedFileURL).inserted {
+                    continue
+                }
 
                 if index == saved.currentIndex {
                     restoredIndex = tracks.count
                 }
-                tracks.append(makeTrack(url: resolved.url, bookmark: resolved.bookmark))
+                tracks.append(track)
             }
         } else if let legacy = defaults.data(forKey: legacyLastTrackBookmarkKey) {
-            if let resolved = resolveBookmark(legacy) {
-                tracks.append(makeTrack(url: resolved.url, bookmark: resolved.bookmark))
-            }
+            tracks.append(restoreTrack(bookmark: legacy, title: nil))
             defaults.removeObject(forKey: legacyLastTrackBookmarkKey)
         }
 
