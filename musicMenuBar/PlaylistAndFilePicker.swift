@@ -58,15 +58,14 @@ struct Playlist {
         return tracks[previousIndex]
     }
 
-    mutating func randomTrack() -> Track? {
+    mutating func randomTrack(excluding excluded: Set<Track.ID> = []) -> Track? {
         guard tracks.count > 1 else { return currentTrack }
 
-        var candidates = Array(tracks.indices)
-        if let currentIndex {
-            candidates.removeAll { $0 == currentIndex }
+        let candidates = tracks.indices.filter {
+            $0 != currentIndex && !excluded.contains(tracks[$0].id)
         }
 
-        guard let newIndex = candidates.randomElement() else { return currentTrack }
+        guard let newIndex = candidates.randomElement() else { return nil }
         currentIndex = newIndex
         return tracks[newIndex]
     }
@@ -223,11 +222,13 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     }
 
     func next() {
-        advance { isShuffleEnabled ? playlist.randomTrack() : playlist.next() }
+        advance { failedIDs in
+            isShuffleEnabled ? playlist.randomTrack(excluding: failedIDs) : playlist.next()
+        }
     }
     
     func previous() {
-        advance { playlist.previous() }
+        advance { _ in playlist.previous() }
     }
 
     func seek(to time: TimeInterval) {
@@ -237,16 +238,18 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         currentTime = clamped
     }
 
-    private func advance(using nextTrack: () -> Track?) {
+    private func advance(using nextTrack: (Set<Track.ID>) -> Track?) {
+        var failedIDs = Set<Track.ID>()
         var failedTitles: [String] = []
 
         for _ in 0..<max(playlist.tracks.count, 1) {
-            guard let track = nextTrack() else { break }
+            guard let track = nextTrack(failedIDs) else { break }
 
             if load(track: track, reportError: false) {
                 play()
                 break
             }
+            failedIDs.insert(track.id)
             failedTitles.append(track.title)
         }
 
