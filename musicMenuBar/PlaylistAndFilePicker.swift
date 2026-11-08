@@ -176,6 +176,8 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
             return
         }
 
+        revivePendingTracks()
+
         var seen = Set(playlist.tracks.compactMap { $0.url?.standardizedFileURL })
         let uniqueURLs = validURLs.filter { seen.insert($0.standardizedFileURL).inserted }
 
@@ -276,6 +278,12 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
             errorMessage = "Playback failed for \"\(title)\""
         } else {
             errorMessage = "Playback failed"
+        }
+    }
+
+    private func revivePendingTracks() {
+        for track in playlist.tracks where track.url == nil {
+            _ = resolvedURL(for: track)
         }
     }
 
@@ -401,14 +409,21 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         if let data = defaults.data(forKey: savedPlaylistKey),
            let saved = try? JSONDecoder().decode(SavedPlaylist.self, from: data) {
 
-            var seen = Set<URL>()
+            var indexByURL: [URL: Int] = [:]
 
             for (index, bookmark) in saved.bookmarks.enumerated() {
                 let savedTitle = saved.titles.flatMap { $0.indices.contains(index) ? $0[index] : nil }
                 let track = restoreTrack(bookmark: bookmark, title: savedTitle)
 
-                if let url = track.url, !seen.insert(url.standardizedFileURL).inserted {
-                    continue
+                if let url = track.url {
+                    let key = url.standardizedFileURL
+                    if let existingIndex = indexByURL[key] {
+                        if index == saved.currentIndex {
+                            restoredIndex = existingIndex
+                        }
+                        continue
+                    }
+                    indexByURL[key] = tracks.count
                 }
 
                 if index == saved.currentIndex {
