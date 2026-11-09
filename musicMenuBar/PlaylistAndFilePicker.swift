@@ -155,7 +155,7 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
             && (isShuffleEnabled || !playlist.isLastTrack)
 
         if canAdvance {
-            next()
+            advanceToNext(stopsAtEnd: !isShuffleEnabled)
         } else {
             finishPlayback()
         }
@@ -224,9 +224,7 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     }
 
     func next() {
-        advance { failedIDs in
-            isShuffleEnabled ? playlist.randomTrack(excluding: failedIDs) : playlist.next()
-        }
+        advanceToNext(stopsAtEnd: false)
     }
     
     func previous() {
@@ -240,11 +238,18 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         currentTime = clamped
     }
 
-    private func advance(using nextTrack: (Set<Track.ID>) -> Track?) {
+    private func advanceToNext(stopsAtEnd: Bool) {
+        advance(stopsAtEnd: stopsAtEnd) { failedIDs in
+            isShuffleEnabled ? playlist.randomTrack(excluding: failedIDs) : playlist.next()
+        }
+    }
+
+    private func advance(stopsAtEnd: Bool = false, using nextTrack: (Set<Track.ID>) -> Track?) {
         var failedIDs = Set<Track.ID>()
         var failedTitles: [String] = []
 
         for _ in 0..<max(playlist.tracks.count, 1) {
+            if stopsAtEnd && playlist.isLastTrack { break }
             guard let track = nextTrack(failedIDs) else { break }
 
             if load(track: track, reportError: false) {
