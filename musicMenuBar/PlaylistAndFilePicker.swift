@@ -244,27 +244,30 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     }
 
     private func advanceToNext(stopsAtEnd: Bool) {
-        advance(stopsAtEnd: stopsAtEnd) { failedIDs in
-            isShuffleEnabled ? playlist.randomTrack(excluding: failedIDs) : playlist.next()
+        advance(stopsAtEnd: stopsAtEnd) { excludedIDs in
+            isShuffleEnabled ? playlist.randomTrack(excluding: excludedIDs) : playlist.next()
         }
     }
 
     private func advance(stopsAtEnd: Bool = false, using nextTrack: (Set<Track.ID>) -> Track?) {
         let originalID = currentTrack?.id
-        var failedIDs = Set<Track.ID>()
+        var excludedIDs = Set<Track.ID>()
+        if let originalID {
+            excludedIDs.insert(originalID)
+        }
         var failedTitles: [String] = []
         var didLoad = false
 
-        for _ in 0..<max(playlist.tracks.count, 1) {
+        for _ in 0..<max(playlist.tracks.count - 1, 1) {
             if stopsAtEnd && playlist.isLastTrack { break }
-            guard let track = nextTrack(failedIDs) else { break }
+            guard let track = nextTrack(excludedIDs) else { break }
 
             if load(track: track, reportError: false) {
                 play()
                 didLoad = true
                 break
             }
-            failedIDs.insert(track.id)
+            excludedIDs.insert(track.id)
             failedTitles.append(track.title)
         }
 
