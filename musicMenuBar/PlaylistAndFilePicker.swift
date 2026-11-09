@@ -195,10 +195,15 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     }
     
     func play(trackWithId id: Track.ID) {
+        let previousID = currentTrack?.id
         playlist.selectTrack(with: id)
         guard let track = playlist.currentTrack else { return }
+
         if load(track: track) {
             play()
+        } else if let previousID {
+            playlist.selectTrack(with: previousID)
+            persistPlaylist()
         }
     }
 
@@ -245,8 +250,10 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     }
 
     private func advance(stopsAtEnd: Bool = false, using nextTrack: (Set<Track.ID>) -> Track?) {
+        let originalID = currentTrack?.id
         var failedIDs = Set<Track.ID>()
         var failedTitles: [String] = []
+        var didLoad = false
 
         for _ in 0..<max(playlist.tracks.count, 1) {
             if stopsAtEnd && playlist.isLastTrack { break }
@@ -254,10 +261,20 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
 
             if load(track: track, reportError: false) {
                 play()
+                didLoad = true
                 break
             }
             failedIDs.insert(track.id)
             failedTitles.append(track.title)
+        }
+
+        if !didLoad, let originalID {
+            playlist.selectTrack(with: originalID)
+            persistPlaylist()
+
+            if isPlaying && player?.isPlaying != true {
+                finishPlayback()
+            }
         }
 
         guard !failedTitles.isEmpty else { return }
@@ -310,21 +327,21 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     private func load(track: Track, reportError: Bool = true) -> Bool {
         defer { persistPlaylist() }
 
-        stopPlayback()
-
         guard let url = resolvedURL(for: track),
-              let player = try? AVAudioPlayer(contentsOf: url) else {
+              let newPlayer = try? AVAudioPlayer(contentsOf: url) else {
             if reportError {
                 errorMessage = "Failed to load \"\(track.title)\""
             }
             return false
         }
 
-        player.delegate = self
-        player.prepareToPlay()
+        stopPlayback()
 
-        self.player = player
-        duration = player.duration
+        newPlayer.delegate = self
+        newPlayer.prepareToPlay()
+
+        player = newPlayer
+        duration = newPlayer.duration
         currentTime = 0
 
         return true
