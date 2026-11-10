@@ -1,37 +1,40 @@
-import Foundation
-import AVFoundation
+import SwiftUI
 import AppKit
+import AVFoundation
 import UniformTypeIdentifiers
 import Observation
 
-struct Playlist {
+struct Track: Identifiable, Equatable {
+    var id = UUID()
+    let title: String
+    let url: URL?
+    let bookmark: Data?
+}
 
-    private(set) var tracks: [Track] = []
-    private(set) var currentIndex: Int?
+struct Playlist {
+    var tracks: [Track] = []
+    var currentIndex: Int?
 
     var currentTrack: Track? {
-        guard let currentIndex, tracks.indices.contains(currentIndex) else { return nil }
-        return tracks[currentIndex]
+        guard let index = currentIndex, tracks.indices.contains(index) else { return nil }
+        return tracks[index]
     }
 
     var isLastTrack: Bool {
-        guard let currentIndex else { return true }
-        return currentIndex >= tracks.count - 1
+        guard let index = currentIndex else { return false }
+        return index == tracks.count - 1
     }
 
-    mutating func append(_ newTracks: [Track]) {
-        tracks.append(contentsOf: newTracks)
-        if currentIndex == nil, !tracks.isEmpty {
-            currentIndex = 0
-        }
+    mutating func append(_ track: Track) {
+        tracks.append(track)
     }
 
-    mutating func restore(tracks restoredTracks: [Track], currentIndex restoredIndex: Int?) {
-        tracks = restoredTracks
-        if let restoredIndex, restoredTracks.indices.contains(restoredIndex) {
-            currentIndex = restoredIndex
+    mutating func restore(tracks: [Track], currentIndex: Int?) {
+        self.tracks = tracks
+        if let currentIndex, tracks.indices.contains(currentIndex) {
+            self.currentIndex = currentIndex
         } else {
-            currentIndex = restoredTracks.isEmpty ? nil : 0
+            self.currentIndex = tracks.isEmpty ? nil : 0
         }
     }
 
@@ -40,42 +43,35 @@ struct Playlist {
         tracks[index] = track
     }
 
-    mutating func selectTrack(with id: Track.ID) {
+    @discardableResult
+    mutating func selectTrack(with id: Track.ID) -> Track? {
         currentIndex = tracks.firstIndex { $0.id == id }
+        return currentTrack
     }
 
     mutating func next() -> Track? {
-        guard let currentIndex, !tracks.isEmpty else { return nil }
-        let nextIndex = (currentIndex + 1) % tracks.count
-        self.currentIndex = nextIndex
+        guard let index = currentIndex, !tracks.isEmpty else { return nil }
+        let nextIndex = (index + 1) % tracks.count
+        currentIndex = nextIndex
         return tracks[nextIndex]
     }
 
     mutating func previous() -> Track? {
-        guard let currentIndex, !tracks.isEmpty else { return nil }
-        let previousIndex = (currentIndex - 1 + tracks.count) % tracks.count
-        self.currentIndex = previousIndex
+        guard let index = currentIndex, !tracks.isEmpty else { return nil }
+        let previousIndex = (index - 1 + tracks.count) % tracks.count
+        currentIndex = previousIndex
         return tracks[previousIndex]
     }
 
     mutating func randomTrack(excluding excluded: Set<Track.ID> = []) -> Track? {
         guard tracks.count > 1 else { return currentTrack }
-
-        let candidates = tracks.indices.filter {
-            $0 != currentIndex && !excluded.contains(tracks[$0].id)
+        let candidates = tracks.indices.filter { index in
+            index != currentIndex && !excluded.contains(tracks[index].id)
         }
-
-        guard let newIndex = candidates.randomElement() else { return nil }
-        currentIndex = newIndex
-        return tracks[newIndex]
+        guard let index = candidates.randomElement() else { return nil }
+        currentIndex = index
+        return tracks[index]
     }
-}
-
-struct Track: Identifiable, Equatable {
-    var id = UUID()
-    let title: String
-    let url: URL?
-    let bookmark: Data?
 }
 
 private struct SavedPlaylist: Codable {
@@ -86,74 +82,53 @@ private struct SavedPlaylist: Codable {
 
 enum FilePicker {
     static func presentForAudio(completion: @escaping ([URL]) -> Void) {
-        NSApp.activate(ignoringOtherApps: true)
-
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.mp3, .mpeg4Audio, .wav]
         panel.allowsMultipleSelection = true
-        panel.canChooseFiles = true
         panel.canChooseDirectories = false
-        panel.level = .modalPanel
-
+        panel.canChooseFiles = true
         panel.begin { response in
-            guard response == .OK else { return }
-            completion(panel.urls)
+            if response == .OK {
+                completion(panel.urls)
+            }
         }
     }
 }
 
 @Observable
 final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
-
-    private(set) var isPlaying: Bool = false
-    private(set) var currentTime: TimeInterval = 0
-    private(set) var duration: TimeInterval = 0
-    private(set) var isRepeatEnabled: Bool = false
-    private(set) var playlist = Playlist()
-    private(set) var isShuffleEnabled: Bool = false
+    var isPlaying = false
+    var currentTime: TimeInterval = 0
+    var duration: TimeInterval = 0
+    var isRepeatEnabled = false
+    var playlist = Playlist()
+    var isShuffleEnabled = false
     var errorMessage: String?
 
-    var currentTrack: Track? { playlist.currentTrack }
+    @ObservationIgnored private var player: AVAudioPlayer?
+    @ObservationIgnored private var progressTimer: Timer?
 
-    private var player: AVAudioPlayer?
-    private var progressTimer: Timer?
-
-    private let savedPlaylistKey = "savedPlaylist"
-    private let legacyLastTrackBookmarkKey = "lastTrackBookmark"
-    private let unavailableTrackTitle = "Unavailable track"
+    @ObservationIgnored private let playlistKey = "savedPlaylist"
+    @ObservationIgnored private let legacyBookmarkKey = "lastTrackBookmark"
+    @ObservationIgnored private let unavailableTrackTitle = "Unavailable track"
 
     override init() {
         super.init()
         restorePlaylist()
     }
 
-    private static let supportedExtensions: Set<String> = ["mp3", "m4a", "wav"]
-    
-    func toggleShuffle() {
-        isShuffleEnabled.toggle()
-    }
-    
-    func toggleRepeat() {
-        isRepeatEnabled.toggle()
-    }
-    
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         guard player === self.player else { return }
-
         guard flag else {
             handlePlaybackFailure()
             return
         }
-
         if isRepeatEnabled {
             seek(to: 0)
             play()
             return
         }
-
-        let canAdvance = playlist.tracks.count > 1
-            && (isShuffleEnabled || !playlist.isLastTrack)
-
+        let canAdvance = playlist.tracks.count > 1 && (isShuffleEnabled || !playlist.isLastTrack)
         if canAdvance {
             advanceToNext(stopsAtEnd: !isShuffleEnabled)
         } else {
@@ -165,13 +140,11 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         guard player === self.player else { return }
         handlePlaybackFailure()
     }
-    
-    func loadFiles(from urls: [URL]) {
-        let validURLs = urls.filter {
-            Self.supportedExtensions.contains($0.pathExtension.lowercased())
-        }
 
-        guard !validURLs.isEmpty else {
+    func loadFiles(_ urls: [URL]) {
+        let supportedExtensions: Set<String> = ["mp3", "m4a", "wav"]
+        let audioURLs = urls.filter { supportedExtensions.contains($0.pathExtension.lowercased()) }
+        guard !audioURLs.isEmpty else {
             errorMessage = "Supported formats: MP3, M4A, WAV"
             return
         }
@@ -179,27 +152,28 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         revivePendingTracks()
 
         var seen = Set(playlist.tracks.compactMap { $0.url?.standardizedFileURL })
-        let uniqueURLs = validURLs.filter { seen.insert($0.standardizedFileURL).inserted }
+        let hadCurrentTrack = playlist.currentTrack != nil
+        var added = false
 
-        guard !uniqueURLs.isEmpty else { return }
-
-        let newTracks = uniqueURLs.map { makeTrack(url: $0) }
-        let shouldAutoload = playlist.currentTrack == nil
-
-        playlist.append(newTracks)
-        persistPlaylist()
-
-        if shouldAutoload, let first = playlist.currentTrack {
-            load(track: first)
+        for url in audioURLs {
+            let standardized = url.standardizedFileURL
+            guard seen.insert(standardized).inserted else { continue }
+            playlist.append(makeTrack(from: url))
+            added = true
         }
-    }
-    
-    func play(trackWithId id: Track.ID) {
-        let previousID = currentTrack?.id
-        playlist.selectTrack(with: id)
-        guard let track = playlist.currentTrack else { return }
 
-        if load(track: track) {
+        guard added else { return }
+
+        if !hadCurrentTrack, let first = playlist.tracks.first {
+            playlist.selectTrack(with: first.id)
+            load(track: first, reportError: true)
+        }
+        persistPlaylist()
+    }
+
+    func play(trackWithId id: Track.ID) {
+        let previousID = playlist.currentTrack?.id
+        if let track = playlist.selectTrack(with: id), load(track: track, reportError: true) {
             play()
         } else if let previousID {
             playlist.selectTrack(with: previousID)
@@ -207,19 +181,18 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         }
     }
 
-    func togglePlayback() {
-        isPlaying ? pause() : play()
-    }
-
     func play() {
         if player == nil {
-            guard let track = currentTrack, load(track: track) else { return }
+            guard let track = playlist.currentTrack,
+                  load(track: track, reportError: true) else { return }
         }
-
         guard let player else { return }
-        player.play()
-        isPlaying = true
-        startProgressTimer()
+        if player.play() {
+            isPlaying = true
+            startProgressTimer()
+        } else {
+            handlePlaybackFailure()
+        }
     }
 
     func pause() {
@@ -228,12 +201,20 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         stopProgressTimer()
     }
 
+    func togglePlayPause() {
+        if isPlaying {
+            pause()
+        } else {
+            play()
+        }
+    }
+
     func next() {
         advanceToNext(stopsAtEnd: false)
     }
-    
+
     func previous() {
-        advance { _ in playlist.previous() }
+        advance { [self] _ in playlist.previous() }
     }
 
     func seek(to time: TimeInterval) {
@@ -244,47 +225,43 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     }
 
     private func advanceToNext(stopsAtEnd: Bool) {
-        advance(stopsAtEnd: stopsAtEnd) { excludedIDs in
-            isShuffleEnabled ? playlist.randomTrack(excluding: excludedIDs) : playlist.next()
+        advance(stopsAtEnd: stopsAtEnd) { [self] excluded in
+            isShuffleEnabled ? playlist.randomTrack(excluding: excluded) : playlist.next()
         }
     }
 
-    private func advance(stopsAtEnd: Bool = false, using nextTrack: (Set<Track.ID>) -> Track?) {
-        let originalID = currentTrack?.id
-        var excludedIDs = Set<Track.ID>()
-        if let originalID {
-            excludedIDs.insert(originalID)
-        }
-        var failedTitles: [String] = []
+    private func advance(stopsAtEnd: Bool = false, using pick: (Set<Track.ID>) -> Track?) {
+        guard let originalID = playlist.currentTrack?.id else { return }
+        var excludedIDs: Set<Track.ID> = [originalID]
+        var failedCount = 0
+        var lastFailedTitle: String?
         var didLoad = false
 
         for _ in 0..<max(playlist.tracks.count - 1, 1) {
             if stopsAtEnd && playlist.isLastTrack { break }
-            guard let track = nextTrack(excludedIDs) else { break }
-
+            guard let track = pick(excludedIDs) else { break }
+            excludedIDs.insert(track.id)
             if load(track: track, reportError: false) {
-                play()
                 didLoad = true
+                play()
                 break
             }
-            excludedIDs.insert(track.id)
-            failedTitles.append(track.title)
+            failedCount += 1
+            lastFailedTitle = track.title
         }
 
-        if !didLoad, let originalID {
-            playlist.selectTrack(with: originalID)
-            persistPlaylist()
+        guard !didLoad else { return }
 
-            if isPlaying && player?.isPlaying != true {
-                finishPlayback()
-            }
+        playlist.selectTrack(with: originalID)
+        persistPlaylist()
+        if isPlaying && player?.isPlaying != true {
+            finishPlayback()
         }
-
-        guard !failedTitles.isEmpty else { return }
-
-        errorMessage = failedTitles.count == 1
-            ? "Failed to load \"\(failedTitles[0])\""
-            : "Failed to load \(failedTitles.count) tracks"
+        if failedCount == 1, let lastFailedTitle {
+            errorMessage = "Failed to load \"\(lastFailedTitle)\""
+        } else if failedCount > 1 {
+            errorMessage = "Failed to load \(failedCount) tracks"
+        }
     }
 
     private func finishPlayback() {
@@ -296,14 +273,23 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     }
 
     private func handlePlaybackFailure() {
-        let title = currentTrack?.title
-        finishPlayback()
-
+        let title = playlist.currentTrack?.title
+        stopProgressTimer()
+        player?.stop()
+        player = nil
+        isPlaying = false
+        currentTime = 0
         if let title {
             errorMessage = "Playback failed for \"\(title)\""
         } else {
             errorMessage = "Playback failed"
         }
+    }
+
+    private func stopPlayback() {
+        stopProgressTimer()
+        player?.stop()
+        isPlaying = false
     }
 
     private func revivePendingTracks() {
@@ -313,50 +299,39 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     }
 
     private func resolvedURL(for track: Track) -> URL? {
-        if let url = track.url {
-            return url
-        }
-
+        if let url = track.url { return url }
         guard let bookmark = track.bookmark,
               let resolved = resolveBookmark(bookmark) else { return nil }
-
-        playlist.replaceTrack(
-            Track(id: track.id, title: track.title, url: resolved.url, bookmark: resolved.bookmark)
-        )
+        playlist.replaceTrack(Track(id: track.id, title: track.title, url: resolved.url, bookmark: resolved.bookmark))
         return resolved.url
     }
 
     @discardableResult
-    private func load(track: Track, reportError: Bool = true) -> Bool {
+    private func load(track: Track, reportError: Bool) -> Bool {
         defer { persistPlaylist() }
 
-        guard let url = resolvedURL(for: track),
-              let newPlayer = try? AVAudioPlayer(contentsOf: url) else {
+        guard let url = resolvedURL(for: track) else {
             if reportError {
                 errorMessage = "Failed to load \"\(track.title)\""
             }
             return false
         }
 
-        stopPlayback()
-
-        newPlayer.delegate = self
-        newPlayer.prepareToPlay()
-
-        player = newPlayer
-        duration = newPlayer.duration
-        currentTime = 0
-
-        return true
-    }
-
-    private func stopPlayback() {
-        player?.stop()
-        player = nil
-        isPlaying = false
-        currentTime = 0
-        duration = 0
-        stopProgressTimer()
+        do {
+            let newPlayer = try AVAudioPlayer(contentsOf: url)
+            newPlayer.delegate = self
+            newPlayer.prepareToPlay()
+            stopPlayback()
+            player = newPlayer
+            duration = newPlayer.duration
+            currentTime = 0
+            return true
+        } catch {
+            if reportError {
+                errorMessage = "Failed to load \"\(track.title)\""
+            }
+            return false
+        }
     }
 
     private func startProgressTimer() {
@@ -374,11 +349,16 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         progressTimer = nil
     }
 
-    private func makeTrack(url: URL, bookmark: Data? = nil) -> Track {
-        Track(
+    private func makeTrack(from url: URL) -> Track {
+        let bookmark = try? url.bookmarkData(
+            options: .withSecurityScope,
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        )
+        return Track(
             title: url.deletingPathExtension().lastPathComponent,
             url: url,
-            bookmark: bookmark ?? (try? url.bookmarkData(options: .withSecurityScope))
+            bookmark: bookmark
         )
     }
 
@@ -396,77 +376,96 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
             titles.append(track.title)
         }
 
+        let defaults = UserDefaults.standard
+        guard !bookmarks.isEmpty else {
+            defaults.removeObject(forKey: playlistKey)
+            return
+        }
+
         let saved = SavedPlaylist(bookmarks: bookmarks, titles: titles, currentIndex: savedIndex)
-        guard let data = try? JSONEncoder().encode(saved) else { return }
-        UserDefaults.standard.set(data, forKey: savedPlaylistKey)
+        if let data = try? JSONEncoder().encode(saved) {
+            defaults.set(data, forKey: playlistKey)
+        }
     }
 
-    private func resolveBookmark(_ bookmark: Data) -> (url: URL, bookmark: Data)? {
+    private func resolveBookmark(_ data: Data) -> (url: URL, bookmark: Data)? {
         var isStale = false
         guard let url = try? URL(
-            resolvingBookmarkData: bookmark,
+            resolvingBookmarkData: data,
             options: .withSecurityScope,
             relativeTo: nil,
             bookmarkDataIsStale: &isStale
         ) else { return nil }
 
-        guard url.startAccessingSecurityScopedResource() else { return nil }
+        _ = url.startAccessingSecurityScopedResource()
 
-        var actualBookmark = bookmark
-        if isStale, let refreshed = try? url.bookmarkData(options: .withSecurityScope) {
-            actualBookmark = refreshed
+        var bookmark = data
+        if isStale,
+           let refreshed = try? url.bookmarkData(
+            options: .withSecurityScope,
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+           ) {
+            bookmark = refreshed
         }
-        return (url, actualBookmark)
+        return (url, bookmark)
     }
 
     private func restoreTrack(bookmark: Data, title: String?) -> Track {
         if let resolved = resolveBookmark(bookmark) {
-            return makeTrack(url: resolved.url, bookmark: resolved.bookmark)
+            return Track(
+                title: resolved.url.deletingPathExtension().lastPathComponent,
+                url: resolved.url,
+                bookmark: resolved.bookmark
+            )
         }
         return Track(title: title ?? unavailableTrackTitle, url: nil, bookmark: bookmark)
     }
 
     private func restorePlaylist() {
         let defaults = UserDefaults.standard
+        var saved: SavedPlaylist?
+
+        if let data = defaults.data(forKey: playlistKey) {
+            saved = try? JSONDecoder().decode(SavedPlaylist.self, from: data)
+        } else if let legacy = defaults.data(forKey: legacyBookmarkKey) {
+            saved = SavedPlaylist(bookmarks: [legacy], titles: nil, currentIndex: 0)
+        }
+
+        guard let saved else { return }
+
         var tracks: [Track] = []
-        var restoredIndex: Int?
+        var indexByURL: [URL: Int] = [:]
+        var currentIndex: Int?
 
-        if let data = defaults.data(forKey: savedPlaylistKey),
-           let saved = try? JSONDecoder().decode(SavedPlaylist.self, from: data) {
+        for (offset, bookmark) in saved.bookmarks.enumerated() {
+            let savedTitle: String? = {
+                guard let titles = saved.titles, titles.indices.contains(offset) else { return nil }
+                return titles[offset]
+            }()
+            let track = restoreTrack(bookmark: bookmark, title: savedTitle)
 
-            var indexByURL: [URL: Int] = [:]
-
-            for (index, bookmark) in saved.bookmarks.enumerated() {
-                let savedTitle = saved.titles.flatMap { $0.indices.contains(index) ? $0[index] : nil }
-                let track = restoreTrack(bookmark: bookmark, title: savedTitle)
-
-                if let url = track.url {
-                    let key = url.standardizedFileURL
-                    if let existingIndex = indexByURL[key] {
-                        if index == saved.currentIndex {
-                            restoredIndex = existingIndex
-                        }
-                        continue
+            if let url = track.url?.standardizedFileURL {
+                if let existing = indexByURL[url] {
+                    if offset == saved.currentIndex {
+                        currentIndex = existing
                     }
-                    indexByURL[key] = tracks.count
+                    continue
                 }
-
-                if index == saved.currentIndex {
-                    restoredIndex = tracks.count
-                }
-                tracks.append(track)
+                indexByURL[url] = tracks.count
             }
-        } else if let legacy = defaults.data(forKey: legacyLastTrackBookmarkKey) {
-            tracks.append(restoreTrack(bookmark: legacy, title: nil))
-            defaults.removeObject(forKey: legacyLastTrackBookmarkKey)
+
+            if offset == saved.currentIndex {
+                currentIndex = tracks.count
+            }
+            tracks.append(track)
         }
 
         guard !tracks.isEmpty else { return }
 
-        playlist.restore(tracks: tracks, currentIndex: restoredIndex)
-
-        if let current = playlist.currentTrack {
-            load(track: current, reportError: false)
+        playlist.restore(tracks: tracks, currentIndex: currentIndex)
+        if let track = playlist.currentTrack {
+            load(track: track, reportError: false)
         }
     }
 }
