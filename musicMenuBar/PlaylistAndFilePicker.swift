@@ -45,8 +45,9 @@ struct Playlist {
 
     @discardableResult
     mutating func selectTrack(with id: Track.ID) -> Track? {
-        currentIndex = tracks.firstIndex { $0.id == id }
-        return currentTrack
+        guard let index = tracks.firstIndex(where: { $0.id == id }) else { return nil }
+        currentIndex = index
+        return tracks[index]
     }
 
     mutating func next() -> Track? {
@@ -173,7 +174,8 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
 
     func play(trackWithId id: Track.ID) {
         let previousID = playlist.currentTrack?.id
-        if let track = playlist.selectTrack(with: id), load(track: track, reportError: true) {
+        guard let track = playlist.selectTrack(with: id) else { return }
+        if load(track: track, reportError: true) {
             play()
         } else if let previousID {
             playlist.selectTrack(with: previousID)
