@@ -288,6 +288,7 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         player = nil
         isPlaying = false
         currentTime = 0
+        duration = 0
         if let title {
             errorMessage = "Playback failed for \"\(title)\""
         } else {
@@ -372,6 +373,9 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     }
 
     private func persistPlaylist() {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: legacyBookmarkKey)
+
         var bookmarks: [Data] = []
         var titles: [String] = []
         var savedIndex: Int?
@@ -385,7 +389,6 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
             titles.append(track.title)
         }
 
-        let defaults = UserDefaults.standard
         guard !bookmarks.isEmpty else {
             defaults.removeObject(forKey: playlistKey)
             return
