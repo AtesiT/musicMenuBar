@@ -108,6 +108,7 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
 
     @ObservationIgnored private var player: AVAudioPlayer?
     @ObservationIgnored private var progressTimer: Timer?
+    @ObservationIgnored private var accessedURLs: [URL: URL] = [:]
 
     @ObservationIgnored private let playlistKey = "savedPlaylist"
     @ObservationIgnored private let legacyBookmarkKey = "lastTrackBookmark"
@@ -116,6 +117,12 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     override init() {
         super.init()
         restorePlaylist()
+    }
+
+    deinit {
+        for url in accessedURLs.values {
+            url.stopAccessingSecurityScopedResource()
+        }
     }
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
@@ -399,7 +406,10 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
             bookmarkDataIsStale: &isStale
         ) else { return nil }
 
-        _ = url.startAccessingSecurityScopedResource()
+        let accessKey = url.standardizedFileURL
+        if accessedURLs[accessKey] == nil, url.startAccessingSecurityScopedResource() {
+            accessedURLs[accessKey] = url
+        }
 
         var bookmark = data
         if isStale,
