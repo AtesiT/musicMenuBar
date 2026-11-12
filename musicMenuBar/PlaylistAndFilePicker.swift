@@ -206,6 +206,9 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
 
     func pause() {
         player?.pause()
+        if let player {
+            currentTime = player.currentTime
+        }
         isPlaying = false
         stopProgressTimer()
     }
