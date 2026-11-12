@@ -316,6 +316,14 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         return resolved.url
     }
 
+    private func relocatedURL(for track: Track, failedURL: URL) -> URL? {
+        guard let bookmark = track.bookmark,
+              let resolved = resolveBookmark(bookmark),
+              resolved.url.standardizedFileURL != failedURL.standardizedFileURL else { return nil }
+        playlist.replaceTrack(Track(id: track.id, title: track.title, url: resolved.url, bookmark: resolved.bookmark))
+        return resolved.url
+    }
+
     @discardableResult
     private func load(track: Track, reportError: Bool) -> Bool {
         defer { persistPlaylist() }
@@ -328,7 +336,13 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         }
 
         do {
-            let newPlayer = try AVAudioPlayer(contentsOf: url)
+            let newPlayer: AVAudioPlayer
+            do {
+                newPlayer = try AVAudioPlayer(contentsOf: url)
+            } catch {
+                guard let movedURL = relocatedURL(for: track, failedURL: url) else { throw error }
+                newPlayer = try AVAudioPlayer(contentsOf: movedURL)
+            }
             newPlayer.delegate = self
             newPlayer.prepareToPlay()
             stopPlayback()
