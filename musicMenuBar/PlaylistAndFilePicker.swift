@@ -109,6 +109,7 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     @ObservationIgnored private var player: AVAudioPlayer?
     @ObservationIgnored private var progressTimer: Timer?
     @ObservationIgnored private var accessedURLs: [URL: URL] = [:]
+    @ObservationIgnored private var lastPersistedData: Data?
 
     @ObservationIgnored private let playlistKey = "savedPlaylist"
     @ObservationIgnored private let legacyBookmarkKey = "lastTrackBookmark"
@@ -390,9 +391,6 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
     }
 
     private func persistPlaylist() {
-        let defaults = UserDefaults.standard
-        defaults.removeObject(forKey: legacyBookmarkKey)
-
         var bookmarks: [Data] = []
         var titles: [String] = []
         var savedIndex: Int?
@@ -406,15 +404,21 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
             titles.append(track.title)
         }
 
+        let defaults = UserDefaults.standard
+
         guard !bookmarks.isEmpty else {
+            lastPersistedData = nil
             defaults.removeObject(forKey: playlistKey)
+            defaults.removeObject(forKey: legacyBookmarkKey)
             return
         }
 
         let saved = SavedPlaylist(bookmarks: bookmarks, titles: titles, currentIndex: savedIndex)
-        if let data = try? JSONEncoder().encode(saved) {
-            defaults.set(data, forKey: playlistKey)
-        }
+        guard let data = try? JSONEncoder().encode(saved), data != lastPersistedData else { return }
+
+        defaults.set(data, forKey: playlistKey)
+        defaults.removeObject(forKey: legacyBookmarkKey)
+        lastPersistedData = data
     }
 
     private func resolveBookmark(_ data: Data) -> (url: URL, bookmark: Data)? {
