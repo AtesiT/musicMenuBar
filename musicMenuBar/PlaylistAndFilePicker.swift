@@ -312,11 +312,20 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         }
     }
 
+    private func refreshedTrack(_ track: Track, with resolved: (url: URL, bookmark: Data)) -> Track {
+        Track(
+            id: track.id,
+            title: resolved.url.deletingPathExtension().lastPathComponent,
+            url: resolved.url,
+            bookmark: resolved.bookmark
+        )
+    }
+
     private func resolvedURL(for track: Track) -> URL? {
         if let url = track.url { return url }
         guard let bookmark = track.bookmark,
               let resolved = resolveBookmark(bookmark) else { return nil }
-        playlist.replaceTrack(Track(id: track.id, title: track.title, url: resolved.url, bookmark: resolved.bookmark))
+        playlist.replaceTrack(refreshedTrack(track, with: resolved))
         return resolved.url
     }
 
@@ -324,7 +333,7 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         guard let bookmark = track.bookmark,
               let resolved = resolveBookmark(bookmark),
               resolved.url.standardizedFileURL != failedURL.standardizedFileURL else { return nil }
-        playlist.replaceTrack(Track(id: track.id, title: track.title, url: resolved.url, bookmark: resolved.bookmark))
+        playlist.replaceTrack(refreshedTrack(track, with: resolved))
         return resolved.url
     }
 
