@@ -161,21 +161,23 @@ final class AudioPlayerManager: NSObject, AVAudioPlayerDelegate {
         revivePendingTracks()
 
         var seen = Set(playlist.tracks.compactMap { $0.url?.standardizedFileURL })
-        let hadCurrentTrack = playlist.currentTrack != nil
-        var added = false
+        let needsSelection = player == nil && playlist.currentTrack?.url == nil
+        var firstAddedID: Track.ID?
 
         for url in audioURLs {
             let standardized = url.standardizedFileURL
             guard seen.insert(standardized).inserted else { continue }
-            playlist.append(makeTrack(from: url))
-            added = true
+            let track = makeTrack(from: url)
+            playlist.append(track)
+            if firstAddedID == nil {
+                firstAddedID = track.id
+            }
         }
 
-        guard added else { return }
+        guard let firstAddedID else { return }
 
-        if !hadCurrentTrack, let first = playlist.tracks.first {
-            playlist.selectTrack(with: first.id)
-            load(track: first, reportError: true)
+        if needsSelection, let track = playlist.selectTrack(with: firstAddedID) {
+            load(track: track, reportError: true)
         }
         persistPlaylist()
     }
